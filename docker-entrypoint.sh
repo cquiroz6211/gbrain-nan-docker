@@ -58,13 +58,14 @@ for i in $(seq 1 30); do
 done
 
 # ─── First-run gbrain init (PGLite) ───────────────────────────────────
-# No --embedding-dimensions: gbrain probes the model via LiteLLM and
-# detects the native 4096d from qwen3-embedding. The litellm recipe
-# would otherwise reject explicit dimensions for non-MRL models.
+# --embedding-dimensions 4096 is required for user-driven-model recipes
+# (litellm, llama-server): gbrain has no default for them and refuses to
+# probe. qwen3-embedding on nan returns a fixed 4096d vector.
 if [ ! -f "/data/.gbrain/config.json" ]; then
   echo "[entrypoint] First run: initializing gbrain PGLite brain..."
   gbrain init --pglite \
     --embedding-model litellm:qwen3-embedding \
+    --embedding-dimensions 4096 \
     --yes
   gbrain apply-migrations --yes --non-interactive
 fi
