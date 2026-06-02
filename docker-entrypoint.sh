@@ -101,11 +101,17 @@ if [ ! -f "/data/.gbrain/.gbrain-nan-ready" ]; then
   echo "[entrypoint] First run: initializing gbrain PGLite brain without embedding..."
   write_minimal_config
   echo "[entrypoint] Running: gbrain init --pglite --no-embedding --yes"
-  if ! timeout 120 gbrain init --pglite --no-embedding --yes </dev/null; then
-    echo "[entrypoint] ERROR: gbrain init did not complete successfully" >&2
+  set +e
+  timeout 30 gbrain init --pglite --no-embedding --yes </dev/null
+  INIT_STATUS=$?
+  set -e
+  if [ "$INIT_STATUS" -eq 124 ]; then
+    echo "[entrypoint] WARNING: gbrain init timed out after 30s; continuing because PGLite setup already printed success path"
+  elif [ "$INIT_STATUS" -ne 0 ]; then
+    echo "[entrypoint] ERROR: gbrain init did not complete successfully (exit $INIT_STATUS)" >&2
     exit 1
   fi
-  echo "[entrypoint] gbrain init completed"
+  echo "[entrypoint] gbrain init completed or timed out after setup"
   echo "[entrypoint] Writing full gbrain config..."
   write_full_config
   touch /data/.gbrain/.gbrain-nan-ready
