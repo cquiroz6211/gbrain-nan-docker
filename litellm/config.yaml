@@ -13,9 +13,19 @@ model_list:
 
   - model_name: qwen3-embedding
     litellm_params:
-      model: openai/qwen3-embedding
+      # IMPORTANTE: openai_like (no openai/) — qwen3-embedding NO es text-embedding-3
+      # y litellm rechaza `dimensions` si lo trata como modelo OpenAI oficial.
+      model: openai_like/qwen3-embedding
       api_base: https://api.nan.builders/v1
       api_key: os.environ/NAN_API_KEY
+      extra_body:
+        # MRL truncate: qwen3-embedding nativo es 4096d.
+        # 1536 encaja con el schema default de gbrain (vector(1536)) sin DDL surgery.
+        # Pérdida típica de accuracy: ~2% (Matryoshka).
+        dimensions: 1536
+        # Sin esto, openai_like manda `encoding_format:` sin valor y el upstream
+        # rechaza el JSON. NO QUITAR.
+        encoding_format: float
     model_info:
       mode: embedding
 
