@@ -100,16 +100,27 @@ done
 if [ ! -f "/data/.gbrain/.gbrain-nan-ready" ]; then
   echo "[entrypoint] First run: initializing gbrain PGLite brain without embedding..."
   write_minimal_config
-  gbrain init --pglite --no-embedding --yes
+  echo "[entrypoint] Running: gbrain init --pglite --no-embedding --yes"
+  if ! timeout 120 gbrain init --pglite --no-embedding --yes </dev/null; then
+    echo "[entrypoint] ERROR: gbrain init did not complete successfully" >&2
+    exit 1
+  fi
+  echo "[entrypoint] gbrain init completed"
+  echo "[entrypoint] Writing full gbrain config..."
   write_full_config
   touch /data/.gbrain/.gbrain-nan-ready
 else
   echo "[entrypoint] Found existing gbrain PGLite brain"
+  echo "[entrypoint] Writing full gbrain config..."
   write_full_config
 fi
 
 echo "[entrypoint] Running gbrain migrations..."
-gbrain apply-migrations --yes --non-interactive
+if ! timeout 120 gbrain apply-migrations --yes --non-interactive </dev/null; then
+  echo "[entrypoint] ERROR: gbrain migrations did not complete successfully" >&2
+  exit 1
+fi
+echo "[entrypoint] gbrain migrations completed"
 
 # ─── Apply tier routing (DB-backed, Anthropic names; shim translates) ─
 # gbrain internamente usa el recipe anthropic para chat. El shim reescribe
