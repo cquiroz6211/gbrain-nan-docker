@@ -13,31 +13,15 @@ done
 mkdir -p /data
 export HOME="/data"
 
-# ─── First-run gbrain init (PGLite) ───────────────────────────────────
-if [ ! -f "/data/.gbrain/config.json" ]; then
-  echo "[entrypoint] First run: initializing gbrain PGLite brain..."
-  # Set env so gbrain picks litellm as embed provider at init time.
-  # The actual API calls happen later when embed/import runs.
-  export LITELLM_BASE_URL="http://localhost:4000"
-  export LITELLM_API_KEY="$LITELLM_MASTER_KEY"
-  export OPENAI_API_KEY="$LITELLM_MASTER_KEY"
-  export OPENAI_BASE_URL="http://localhost:4000"
-  gbrain init --pglite \
-    --embedding-model litellm:qwen3-embedding \
-    --embedding-dimensions 4096 \
-    --yes
-  gbrain apply-migrations --yes --non-interactive
-fi
-
-# ─── Export runtime env ───────────────────────────────────────────────
+# ─── gbrain provider env ──────────────────────────────────────────────
+# Use litellm provider (NOT openai). Do NOT set OPENAI_API_KEY or
+# OPENAI_BASE_URL — that triggers gbrain's auto-detect to pick openai
+# for chat/expansion, which we don't want.
 export LITELLM_BASE_URL="http://localhost:4000"
 export LITELLM_API_KEY="$LITELLM_MASTER_KEY"
-export OPENAI_API_KEY="$LITELLM_MASTER_KEY"
-export OPENAI_BASE_URL="http://localhost:4000"
-export ANTHROPIC_BASE_URL="http://localhost:4001"
-export ANTHROPIC_API_KEY="$LITELLM_MASTER_KEY"
 
-# ─── Start LiteLLM proxy ──────────────────────────────────────────────
+# ─── Start LiteLLM proxy FIRST ────────────────────────────────────────
+# gbrain init needs LiteLLM up so it can probe the embedding model.
 echo "[entrypoint] Starting LiteLLM on :4000..."
 litellm --config /etc/gbrain/litellm/config.yaml --port 4000 --telemetry False &
 LITELLM_PID=$!
@@ -73,13 +57,36 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# ─── Apply tier routing (DB-backed) ───────────────────────────────────
-# gbrain internally uses Anthropic model names; LiteLLM translates to nan.
+# ─── First-run gbrain init (PGLite) ───────────────────────────────────
+# No --embedding-dimensions: gbrain probes the model via LiteLLM and
+# detects the native 4096d from qwen3-embedding. The litellm recipe
+# would otherwise reject explicit dimensions for non-MRL models.
+if [ ! -f "/data/.gbrain/config.json" ]; then
+  echo "[entrypoint] First run: initializing gbrain PGLite brain..."
+  gbrain init --pglite \
+    --embedding-model litellm:qwen3-embedding \
+    --yes
+  gbrain apply-migrations --yes --non-interactive
+fi
+
+# ─── Override chat/expansion to use litellm provider ──────────────────
+# The init's auto-detect may have picked openai:gpt-5.2 (from OPENAI_API_KEY
+# in the env if any leaked through). Force everything to litellm.
+echo "[entrypoint] Setting chat/expansion models..."
+gbrain config set chat_model litellm:qwen3.6 2>/dev/null || true
+gbrain config set expansion_model litellm:qwen3.6 2>/dev/null || true
+
+# ─── Apply tier routing (Anthropic model names; LiteLLM translates) ──
 echo "[entrypoint] Applying tier routing..."
 gbrain config set models.default claude-sonnet-4-6 2>/dev/null || true
 gbrain config set models.tier.utility claude-haiku-4-5-20251001 2>/dev/null || true
 gbrain config set models.tier.reasoning claude-sonnet-4-6 2>/dev/null || true
 gbrain config set models.tier.deep claude-sonnet-4-6 2>/dev/null || true
+
+# ─── Runtime env for gbrain serve ─────────────────────────────────────
+# gbrain's Anthropic SDK calls go through the shim, which forwards to LiteLLM.
+export ANTHROPIC_BASE_URL="http://localhost:4001"
+export ANTHROPIC_API_KEY="$LITELLM_MASTER_KEY"
 
 # ─── Build command with optional flags ────────────────────────────────
 GBRAIN_CMD=("$@")
