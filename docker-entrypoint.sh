@@ -20,15 +20,25 @@ mkdir -p /data/.gbrain
 export LITELLM_BASE_URL="http://localhost:4000"
 export LITELLM_API_KEY="$LITELLM_MASTER_KEY"
 
-# ─── Pre-write gbrain config.json ─────────────────────────────────────
-# CRÍTICO: los campos schema-stable (embedding_model, embedding_dimensions,
-# chat_model, expansion_model, provider_base_urls) van SOLO en este archivo.
-# gbrain config set solo afecta tier routing (models.tier.*).
-#
-# embedding_dimensions: 1536 = MRL truncation point de qwen3-embedding.
-# Encaja con vector(1536) default de gbrain, sin DDL surgery.
-# La truncación MRL real ocurre en LiteLLM via extra_body.dimensions: 1536.
-cat > /data/.gbrain/config.json <<EOF
+# ─── gbrain config helpers ────────────────────────────────────────────
+write_minimal_config() {
+  # CRÍTICO: gbrain init valida embedding_model/embedding_dimensions si existen.
+  # Para crear PGLite sin disparar esa validación, primero hacemos init con
+  # --no-embedding y un config mínimo.
+  cat > /data/.gbrain/config.json <<EOF
+{
+  "engine": "pglite",
+  "database_path": "/data/.gbrain/brain.pglite"
+}
+EOF
+}
+
+write_full_config() {
+  # Campos schema-stable: van SOLO en ~/.gbrain/config.json (archivo), NO en
+  # `gbrain config set`. embedding_dimensions=1536 encaja con vector(1536)
+  # default de gbrain. La truncación MRL real ocurre en LiteLLM via
+  # extra_body.dimensions: 1536.
+  cat > /data/.gbrain/config.json <<EOF
 {
   "engine": "pglite",
   "database_path": "/data/.gbrain/brain.pglite",
@@ -41,7 +51,7 @@ cat > /data/.gbrain/config.json <<EOF
   }
 }
 EOF
-echo "[entrypoint] gbrain config written to /data/.gbrain/config.json"
+}
 
 # ─── Start LiteLLM proxy ──────────────────────────────────────────────
 echo "[entrypoint] Starting LiteLLM on :4000..."
@@ -80,10 +90,24 @@ for i in $(seq 1 30); do
 done
 
 # ─── gbrain init (PGLite) ─────────────────────────────────────────────
-# Sin flags: gbrain lee /data/.gbrain/config.json que ya está escrito.
-# --yes para non-interactive confirmation.
-echo "[entrypoint] Initializing gbrain PGLite brain..."
-gbrain init --pglite --yes
+# Primer arranque:
+# 1. Init con --no-embedding para crear PGLite sin validar litellm dims.
+# 2. Sobrescribir config.json completo con qwen3-embedding 1536d.
+# 3. apply-migrations contra ese config.
+#
+# En arranques siguientes, no forzamos init: solo reescribimos el config
+# completo (idempotente) y aplicamos migrations.
+if [ ! -f "/data/.gbrain/.gbrain-nan-ready" ]; then
+  echo "[entrypoint] First run: initializing gbrain PGLite brain without embedding..."
+  write_minimal_config
+  gbrain init --pglite --no-embedding --yes
+  write_full_config
+  touch /data/.gbrain/.gbrain-nan-ready
+else
+  echo "[entrypoint] Found existing gbrain PGLite brain"
+  write_full_config
+fi
+
 echo "[entrypoint] Running gbrain migrations..."
 gbrain apply-migrations --yes --non-interactive
 
