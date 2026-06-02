@@ -13,12 +13,9 @@ model_list:
 
   - model_name: qwen3-embedding
     litellm_params:
-      model: openai_like/qwen3-embedding
+      model: openai/qwen3-embedding
       api_base: https://api.nan.builders/v1
       api_key: os.environ/NAN_API_KEY
-      extra_body:
-        dimensions: 1536
-        encoding_format: float
     model_info:
       mode: embedding
 
